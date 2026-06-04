@@ -1,60 +1,46 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRawConversation } from "@elevenlabs/react";
 
 const BAR_COUNT = 20;
 
-export function BarVisualizer({
-  isSpeaking,
-  isListening,
-}: {
-  isSpeaking: boolean;
-  isListening: boolean;
-}) {
+export function BarVisualizer({ analyser }: { analyser: AnalyserNode | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number>(0);
-  const conversationRef = useRef(useRawConversation());
-  const conversation = useRawConversation();
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
-  // keep ref current without restarting the animation loop
   useEffect(() => {
-    conversationRef.current = conversation;
+    analyserRef.current = analyser;
   });
 
   useEffect(() => {
     const bars = containerRef.current?.querySelectorAll<HTMLDivElement>("[data-bar]");
     if (!bars) return;
 
+    const dataArray = new Uint8Array(BAR_COUNT);
+
     const animate = () => {
-      const conv = conversationRef.current;
-      const active = isSpeaking || isListening;
-
-      if (!active || !conv) {
+      const a = analyserRef.current;
+      if (a) {
+        const freq = new Uint8Array(a.frequencyBinCount);
+        a.getByteFrequencyData(freq);
+        const step = Math.max(1, Math.floor(freq.length / BAR_COUNT));
+        bars.forEach((bar, i) => {
+          const value = freq[i * step] ?? 0;
+          bar.style.height = `${Math.max(4, (value / 255) * 64)}px`;
+        });
+      } else {
+        dataArray.fill(0);
         bars.forEach((bar) => (bar.style.height = "4px"));
-        frameRef.current = requestAnimationFrame(animate);
-        return;
       }
-
-      const data = isSpeaking
-        ? conv.getOutputByteFrequencyData()
-        : conv.getInputByteFrequencyData();
-
-      const step = Math.max(1, Math.floor(data.length / BAR_COUNT));
-
-      bars.forEach((bar, i) => {
-        const value = data[i * step] ?? 0;
-        bar.style.height = `${Math.max(4, (value / 255) * 64)}px`;
-      });
-
       frameRef.current = requestAnimationFrame(animate);
     };
 
     frameRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frameRef.current);
-  // intentionally excludes conversationRef — it's a stable ref updated via the other effect
+  // analyserRef is stable — updated via the sync effect above
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSpeaking, isListening]);
+  }, []);
 
   return (
     <div

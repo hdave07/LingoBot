@@ -8,8 +8,9 @@ import {
   scoreVocab,
   saveOnboarding,
 } from "@/lib/onboarding";
+import { saveAnthropicKey } from "@/lib/anthropic-key";
 
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 
 const SELF_REPORT_OPTIONS: { label: string; sub: string; level: CefrLevel }[] =
   [
@@ -31,6 +32,13 @@ const SELF_REPORT_OPTIONS: { label: string; sub: string; level: CefrLevel }[] =
     },
   ];
 
+const LEVEL_LABELS: Record<CefrLevel, string> = {
+  A1: "Beginner",
+  A2: "Elementary",
+  B1: "Intermediate",
+  B2: "Upper Intermediate",
+};
+
 export default function Onboarding() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
@@ -38,6 +46,9 @@ export default function Onboarding() {
   const [wordIndex, setWordIndex] = useState(0);
   const [answers, setAnswers] = useState<boolean[]>([]);
   const [finalLevel, setFinalLevel] = useState<CefrLevel>("A1");
+  const [apiKey, setApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [keyError, setKeyError] = useState("");
 
   const handleSelfReport = (level: CefrLevel) => {
     setInitialLevel(level);
@@ -53,22 +64,26 @@ export default function Onboarding() {
     } else {
       const scored = scoreVocab(next);
       setFinalLevel(scored);
-      saveOnboarding({
-        initialLevel,
-        cefrLevel: scored,
-        placementMethod: "vocab_test",
-        targetLanguage: "es",
-        completedAt: new Date().toISOString(),
-      });
       setStep(3);
     }
   };
 
-  const LEVEL_LABELS: Record<CefrLevel, string> = {
-    A1: "Beginner",
-    A2: "Elementary",
-    B1: "Intermediate",
-    B2: "Upper Intermediate",
+  const handleApiKeySubmit = () => {
+    const trimmed = apiKey.trim();
+    if (!trimmed.startsWith("sk-ant-")) {
+      setKeyError("Key should start with sk-ant-");
+      return;
+    }
+    saveAnthropicKey(trimmed);
+    saveOnboarding({
+      initialLevel,
+      cefrLevel: finalLevel,
+      placementMethod: "vocab_test",
+      targetLanguage: "es",
+      completedAt: new Date().toISOString(),
+      anthropicKeySet: true,
+    });
+    router.push("/conversation");
   };
 
   return (
@@ -76,10 +91,10 @@ export default function Onboarding() {
       <div className="w-full max-w-sm">
         {/* Progress dots */}
         <div className="mb-12 flex justify-center gap-2">
-          {[1, 2, 3].map((s) => (
+          {[1, 2, 3, 4].map((s) => (
             <div
               key={s}
-              className={`h-1.5 w-8 rounded-full transition-colors duration-300 ${
+              className={`h-1.5 w-6 rounded-full transition-colors duration-300 ${
                 s <= step ? "bg-white" : "bg-zinc-700"
               }`}
             />
@@ -90,7 +105,7 @@ export default function Onboarding() {
         {step === 1 && (
           <div className="flex flex-col gap-6">
             <div>
-              <p className="text-sm text-zinc-500">Step 1 of 2</p>
+              <p className="text-sm text-zinc-500">Step 1 of 3</p>
               <h1 className="mt-1 text-2xl font-semibold">
                 How&rsquo;s your Spanish?
               </h1>
@@ -118,14 +133,13 @@ export default function Onboarding() {
         {step === 2 && (
           <div className="flex flex-col items-center gap-8">
             <div className="w-full">
-              <p className="text-sm text-zinc-500">Step 2 of 2</p>
+              <p className="text-sm text-zinc-500">Step 2 of 3</p>
               <h1 className="mt-1 text-2xl font-semibold">Quick vocab check</h1>
               <p className="mt-1 text-sm text-zinc-500">
                 Do you know these words?
               </p>
             </div>
 
-            {/* Progress */}
             <div className="flex w-full gap-1">
               {VOCAB_WORDS.map((_, i) => (
                 <div
@@ -141,7 +155,6 @@ export default function Onboarding() {
               ))}
             </div>
 
-            {/* Word */}
             <div className="flex flex-col items-center gap-2">
               <span className="text-5xl font-bold tracking-tight">
                 {VOCAB_WORDS[wordIndex].word}
@@ -151,7 +164,6 @@ export default function Onboarding() {
               </span>
             </div>
 
-            {/* Yes / No */}
             <div className="flex w-full gap-3">
               <button
                 onClick={() => handleVocabAnswer(false)}
@@ -169,16 +181,14 @@ export default function Onboarding() {
           </div>
         )}
 
-        {/* Step 3 — Done */}
+        {/* Step 3 — Level result */}
         {step === 3 && (
           <div className="flex flex-col items-center gap-8 text-center">
             <div>
-              <p className="text-sm text-zinc-500">All set</p>
-              <h1 className="mt-1 text-2xl font-semibold">
-                You&rsquo;re ready to start
-              </h1>
+              <p className="text-sm text-zinc-500">Step 3 of 3</p>
+              <h1 className="mt-1 text-2xl font-semibold">Your level</h1>
               <p className="mt-3 text-zinc-400">
-                Your level:{" "}
+                Based on your answers:{" "}
                 <span className="font-semibold text-white">
                   {finalLevel} — {LEVEL_LABELS[finalLevel]}
                 </span>
@@ -188,8 +198,65 @@ export default function Onboarding() {
               </p>
             </div>
             <button
-              onClick={() => router.push("/conversation")}
+              onClick={() => setStep(4)}
               className="w-full rounded-2xl bg-white py-4 font-medium text-black transition-colors hover:bg-zinc-200"
+            >
+              Continue
+            </button>
+          </div>
+        )}
+
+        {/* Step 4 — Anthropic API key */}
+        {step === 4 && (
+          <div className="flex flex-col gap-6">
+            <div>
+              <p className="text-sm text-zinc-500">Almost there</p>
+              <h1 className="mt-1 text-2xl font-semibold">
+                Your Claude API key
+              </h1>
+              <p className="mt-2 text-sm text-zinc-500">
+                LingoBot runs on Claude. Your key stays on your device and is
+                only used to make API calls on your behalf.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex overflow-hidden rounded-2xl border border-zinc-800 focus-within:border-zinc-500">
+                <input
+                  type={showKey ? "text" : "password"}
+                  value={apiKey}
+                  onChange={(e) => {
+                    setApiKey(e.target.value);
+                    setKeyError("");
+                  }}
+                  placeholder="sk-ant-…"
+                  className="flex-1 bg-transparent px-4 py-4 text-sm text-white placeholder-zinc-600 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey((v) => !v)}
+                  className="px-4 text-zinc-500 hover:text-zinc-300"
+                >
+                  {showKey ? "Hide" : "Show"}
+                </button>
+              </div>
+              {keyError && (
+                <p className="text-xs text-red-500">{keyError}</p>
+              )}
+              <a
+                href="https://console.anthropic.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-zinc-600 hover:text-zinc-400"
+              >
+                Get a key at console.anthropic.com →
+              </a>
+            </div>
+
+            <button
+              onClick={handleApiKeySubmit}
+              disabled={!apiKey.trim()}
+              className="w-full rounded-2xl bg-white py-4 font-medium text-black transition-colors hover:bg-zinc-200 disabled:opacity-40"
             >
               Start learning
             </button>

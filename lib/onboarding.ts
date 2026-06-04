@@ -7,6 +7,7 @@ export interface OnboardingData {
   placementMethod: PlacementMethod;
   targetLanguage: "es";
   completedAt: string;
+  anthropicKeySet: boolean;
 }
 
 export interface VocabWord {
