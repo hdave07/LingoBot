@@ -5,9 +5,9 @@ export const maxDuration = 60;
 
 function buildSystemPrompt(cefrLevel: CefrLevel): string {
   const levelGuide: Record<CefrLevel, string> = {
-    A1: "complete beginner — use only present tense, very short sentences (5–8 words), A1 CEFR vocabulary only, provide English translation of any new word in parentheses immediately after it",
-    A2: "elementary — use present and simple past tense, short sentences, A1–A2 vocabulary, provide English glosses for words the learner is unlikely to know yet",
-    B1: "intermediate — use a range of past and present tenses, introduce the subjunctive sparingly with explanation, B1 vocabulary, provide English glosses only for rare or idiomatic words",
+    A1: "complete beginner — use only present tense, very short sentences (5–8 words), A1 CEFR vocabulary only",
+    A2: "elementary — use present and simple past tense, short sentences, A1–A2 vocabulary",
+    B1: "intermediate — use a range of past and present tenses, introduce the subjunctive sparingly with explanation, B1 vocabulary",
     B2: "upper-intermediate — speak naturally using all common tenses including subjunctive and conditional, idiomatic phrases welcome, provide English glosses only when directly asked",
   };
 
@@ -15,8 +15,8 @@ function buildSystemPrompt(cefrLevel: CefrLevel): string {
 
 Core behavior:
 - Respond primarily in Spanish, at a complexity appropriate for the learner's level described above.
-- After your Spanish response, include a brief "Tip" section in English addressing one grammar or vocabulary point from the exchange.
-- Keep responses concise: 2–4 sentences of Spanish plus the tip.
+- If the user asks for an explanation of the spanish response the provide a tip to explain the response in english.
+- Keep responses concise: 2–4 sentences of Spanish
 - Gently correct errors by modeling the correct form naturally within your reply — do not lecture.
 - Encourage the learner. Be warm, conversational, and patient.
 - Do not switch entirely to English mid-conversation unless the learner is completely stuck.
@@ -24,7 +24,7 @@ Core behavior:
 Format your response as:
 [Spanish response]
 
-**Tip:** [brief English note on one grammar or vocabulary point from this exchange]`;
+`;
 }
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
