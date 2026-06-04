@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getOnboarding } from "@/lib/onboarding";
 import { getAnthropicKey } from "@/lib/anthropic-key";
 import { VoicePipeline } from "../components/VoicePipeline";
+import { ProgressStrip } from "../components/ProgressStrip";
 import type { CefrLevel } from "@/lib/onboarding";
 
 export default function ConversationPage() {
@@ -28,8 +29,13 @@ export default function ConversationPage() {
   if (!ready) return <div className="min-h-screen bg-black" />;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black">
-      <VoicePipeline cefrLevel={cefrLevel} anthropicKey={anthropicKey} />
+    <div className="flex min-h-screen flex-col bg-black">
+      <div className="flex justify-center pt-8 pb-2">
+        <ProgressStrip cefrLevel={cefrLevel} />
+      </div>
+      <div className="flex flex-1 items-center justify-center">
+        <VoicePipeline cefrLevel={cefrLevel} anthropicKey={anthropicKey} />
+      </div>
     </div>
   );
 }

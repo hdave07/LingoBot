@@ -1,33 +1,41 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { buildSystemPrompt } from "@/lib/onboarding";
 import type { CefrLevel } from "@/lib/onboarding";
 
 export const maxDuration = 60;
 
-function buildSystemPrompt(cefrLevel: CefrLevel): string {
-  const levelGuide: Record<CefrLevel, string> = {
-    A1: "complete beginner — use only present tense, very short sentences (5–8 words), A1 CEFR vocabulary only, provide English translation of any new word in parentheses immediately after it",
-    A2: "elementary — use present and simple past tense, short sentences, A1–A2 vocabulary, provide English glosses for words the learner is unlikely to know yet",
-    B1: "intermediate — use a range of past and present tenses, introduce the subjunctive sparingly with explanation, B1 vocabulary, provide English glosses only for rare or idiomatic words",
-    B2: "upper-intermediate — speak naturally using all common tenses including subjunctive and conditional, idiomatic phrases welcome, provide English glosses only when directly asked",
-  };
-
-  return `You are Sofia, a warm and encouraging Spanish conversation tutor. You are speaking with a ${levelGuide[cefrLevel]} Spanish learner.
-
-Core behavior:
-- Respond primarily in Spanish, at a complexity appropriate for the learner's level described above.
-- After your Spanish response, include a brief "Tip" section in English addressing one grammar or vocabulary point from the exchange.
-- Keep responses concise: 2–4 sentences of Spanish plus the tip.
-- Gently correct errors by modeling the correct form naturally within your reply — do not lecture.
-- Encourage the learner. Be warm, conversational, and patient.
-- Do not switch entirely to English mid-conversation unless the learner is completely stuck.
-
-Format your response as:
-[Spanish response]
-
-**Tip:** [brief English note on one grammar or vocabulary point from this exchange]`;
-}
-
 type HistoryMessage = { role: "user" | "assistant"; content: string };
+
+const RESPOND_TOOL: Anthropic.Tool = {
+  name: "respond",
+  description: "Send your Spanish response to the learner.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      text: {
+        type: "string",
+        description: "Your Spanish response — this is what gets spoken aloud. Plain text only, no markdown.",
+      },
+      vocab: {
+        type: "array",
+        description: "Words from your response the learner at this level might not know. Empty array if none.",
+        items: {
+          type: "object",
+          properties: {
+            word: { type: "string", description: "Exact form of the word as used in text (with accents)" },
+            translation: { type: "string", description: "English translation" },
+          },
+          required: ["word", "translation"],
+        },
+      },
+      tip: {
+        type: ["string", "null"] as unknown as "string",
+        description: "Brief English grammar or vocabulary tip, or null if tips are off.",
+      },
+    },
+    required: ["text", "vocab"],
+  },
+};
 
 export async function POST(request: Request) {
   const apiKey = request.headers.get("x-anthropic-key");
@@ -39,6 +47,7 @@ export async function POST(request: Request) {
     transcript?: string;
     cefrLevel?: CefrLevel;
     history?: HistoryMessage[];
+    showTips?: boolean;
   };
 
   if (!body.transcript) {
@@ -46,7 +55,9 @@ export async function POST(request: Request) {
   }
 
   const cefrLevel: CefrLevel = body.cefrLevel ?? "A1";
+  const showTips: boolean = body.showTips ?? true;
   const history: HistoryMessage[] = (body.history ?? []).slice(-10);
+  const isFirstTurn: boolean = history.length === 0;
 
   const client = new Anthropic({ apiKey });
 
@@ -54,43 +65,43 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        let fullText = "";
-
-        const anthropicStream = client.messages.stream({
+        const response = await client.messages.create({
           model: "claude-sonnet-4-6",
-          max_tokens: 512,
-          system: buildSystemPrompt(cefrLevel),
+          max_tokens: 1024,
+          system: buildSystemPrompt(cefrLevel, showTips, isFirstTurn),
+          tools: [RESPOND_TOOL],
+          tool_choice: { type: "tool", name: "respond" },
           messages: [
             ...history,
             { role: "user", content: body.transcript! },
           ],
         });
 
-        for await (const chunk of anthropicStream) {
-          if (
-            chunk.type === "content_block_delta" &&
-            chunk.delta.type === "text_delta"
-          ) {
-            fullText += chunk.delta.text;
-            controller.enqueue(
-              encoder.encode(
-                JSON.stringify({ type: "delta", text: chunk.delta.text }) + "\n"
-              )
-            );
-          }
+        const toolUse = response.content.find((c) => c.type === "tool_use");
+        if (!toolUse || toolUse.type !== "tool_use") {
+          throw new Error("No tool use in response");
         }
+
+        const input = toolUse.input as {
+          text: string;
+          vocab: Array<{ word: string; translation: string }>;
+          tip?: string | null;
+        };
 
         controller.enqueue(
           encoder.encode(
-            JSON.stringify({ type: "done", fullText }) + "\n"
+            JSON.stringify({
+              type: "done",
+              text: input.text ?? "",
+              vocab: input.vocab ?? [],
+              tip: input.tip ?? null,
+            }) + "\n"
           )
         );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         controller.enqueue(
-          encoder.encode(
-            JSON.stringify({ type: "error", error: message }) + "\n"
-          )
+          encoder.encode(JSON.stringify({ type: "error", error: message }) + "\n")
         );
       } finally {
         controller.close();

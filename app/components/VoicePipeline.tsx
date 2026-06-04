@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BarVisualizer } from "./BarVisualizer";
-import type { CefrLevel } from "@/lib/onboarding";
+import { DogMascot } from "./DogMascot";
+import { VocabText } from "./VocabText";
+import {
+  getShowTips,
+  setShowTips,
+  getTutorVoice,
+  setTutorVoice,
+  VOICE_IDS,
+} from "@/lib/onboarding";
+import { recordSessionStart, recordExchange } from "@/lib/progress";
+import { saveConversation, loadConversation } from "@/lib/conversation";
+import type { CefrLevel, TutorVoice } from "@/lib/onboarding";
 
 type PipelineState =
   | "idle"
@@ -12,9 +22,16 @@ type PipelineState =
   | "speaking"
   | "error";
 
+interface VocabEntry {
+  word: string;
+  translation: string;
+}
+
 interface Message {
   role: "user" | "agent";
   text: string;
+  vocab?: VocabEntry[];
+  tip?: string | null;
 }
 
 interface VoicePipelineProps {
@@ -34,11 +51,11 @@ function preferredMime(): string {
 export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
   const [pipelineState, setPipelineState] = useState<PipelineState>("idle");
   const [transcript, setTranscript] = useState("");
-  const [assistantText, setAssistantText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [inputAnalyser, setInputAnalyser] = useState<AnalyserNode | null>(null);
-  const [outputAnalyser, setOutputAnalyser] = useState<AnalyserNode | null>(null);
+  const [showTips, setShowTipsState] = useState(true);
+  const [voice, setVoiceState] = useState<TutorVoice>("norah");
+  const [conversationTitle, setConversationTitle] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -46,15 +63,35 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    setShowTipsState(getShowTips());
+    setVoiceState(getTutorVoice());
+    const saved = loadConversation();
+    if (saved) {
+      setMessages(saved.messages);
+      setConversationTitle(saved.title);
+    }
+  }, []);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, assistantText]);
+  }, [messages]);
+
+  function handleTipToggle() {
+    const next = !showTips;
+    setShowTips(next);
+    setShowTipsState(next);
+  }
+
+  function handleVoiceToggle() {
+    const next: TutorVoice = voice === "norah" ? "antonio" : "norah";
+    setTutorVoice(next);
+    setVoiceState(next);
+  }
 
   function handleError(msg: string) {
     console.error("[VoicePipeline]", msg);
     setError(msg);
     setPipelineState("error");
-    setInputAnalyser(null);
-    setOutputAnalyser(null);
   }
 
   async function handlePressStart() {
@@ -70,15 +107,8 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
       return;
     }
 
-    // Create AudioContext here (direct user gesture — required for iOS)
-    const ctx = new AudioContext();
-    audioCtxRef.current = ctx;
-
-    const source = ctx.createMediaStreamSource(stream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-    setInputAnalyser(analyser);
+    // Create AudioContext here (direct user gesture — required for iOS playback later)
+    audioCtxRef.current = new AudioContext();
 
     chunksRef.current = [];
     const mime = preferredMime();
@@ -97,7 +127,6 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
 
     mr.stream.getTracks().forEach((t) => t.stop());
     mr.stop();
-    setInputAnalyser(null);
 
     await new Promise<void>((resolve) => {
       mr.onstop = () => resolve();
@@ -108,10 +137,12 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
   }
 
   async function runPipeline(audioBlob: Blob) {
+    if (messages.length === 0) recordSessionStart();
+
     // --- STT ---
     setPipelineState("transcribing");
     const fd = new FormData();
-    fd.append("audio", audioBlob, "recording.webm");
+    fd.append("file", audioBlob, "recording.webm");
     fd.append("language", "es");
 
     let userTranscript = "";
@@ -136,18 +167,28 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
     ];
     setMessages(updatedMessages);
 
-    // --- Claude streaming ---
+    // Second user message (index 2) establishes the scenario — use it as the title
+    if (updatedMessages.filter((m) => m.role === "user").length === 2 && !conversationTitle) {
+      setConversationTitle(
+        userTranscript.length > 42
+          ? userTranscript.slice(0, 42).trimEnd() + "…"
+          : userTranscript
+      );
+    }
+
+    // --- Claude ---
     setPipelineState("thinking");
-    setAssistantText("");
 
     const history = updatedMessages.slice(-10).map((m) => ({
       role: m.role === "user" ? "user" : ("assistant" as "user" | "assistant"),
       content: m.text,
     }));
-    // Remove the last user message from history — it's sent as transcript
     const historyWithoutLast = history.slice(0, -1);
 
-    let fullText = "";
+    let agentText = "";
+    let agentVocab: VocabEntry[] = [];
+    let agentTip: string | null = null;
+
     try {
       const chatRes = await fetch("/api/chat", {
         method: "POST",
@@ -159,6 +200,7 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
           transcript: userTranscript,
           cefrLevel,
           history: historyWithoutLast,
+          showTips,
         }),
       });
 
@@ -182,17 +224,16 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
           if (!line.trim()) continue;
           try {
             const msg = JSON.parse(line);
-            if (msg.type === "delta") {
-              fullText += msg.text;
-              setAssistantText(fullText);
-            } else if (msg.type === "done") {
-              fullText = msg.fullText;
+            if (msg.type === "done") {
+              agentText = msg.text ?? "";
+              agentVocab = msg.vocab ?? [];
+              agentTip = msg.tip ?? null;
             } else if (msg.type === "error") {
               handleError(msg.error);
               return;
             }
           } catch {
-            // partial JSON line, skip
+            // partial line, skip
           }
         }
       }
@@ -201,13 +242,18 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
       return;
     }
 
-    setMessages((prev) => [...prev, { role: "agent", text: fullText }]);
-    setAssistantText("");
+    const nextMessages: Message[] = [
+      ...updatedMessages,
+      { role: "agent", text: agentText, vocab: agentVocab, tip: agentTip },
+    ];
+    setMessages(nextMessages);
+    saveConversation({ messages: nextMessages, title: conversationTitle, savedAt: new Date().toISOString() });
 
     // --- TTS ---
     setPipelineState("speaking");
-    await playTTS(fullText);
+    await playTTS(agentText);
 
+    recordExchange();
     setPipelineState("idle");
   }
 
@@ -216,7 +262,7 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voiceId: VOICE_IDS[voice] }),
       });
 
       if (!res.ok) {
@@ -227,26 +273,18 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
 
       const arrayBuffer = await res.arrayBuffer();
 
-      // Reuse AudioContext created during press start; resume in case it suspended
       const ctx = audioCtxRef.current ?? new AudioContext();
       audioCtxRef.current = ctx;
       await ctx.resume();
 
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
 
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
-      setOutputAnalyser(analyser);
+      source.connect(ctx.destination);
 
       await new Promise<void>((resolve) => {
-        source.onended = () => {
-          setOutputAnalyser(null);
-          resolve();
-        };
+        source.onended = () => resolve();
         source.start();
       });
     } catch (e) {
@@ -266,20 +304,18 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
     error: error ?? "Error",
   };
 
-  const vizColor: Record<PipelineState, string> = {
-    idle: "text-zinc-700",
-    recording: "text-green-500",
-    transcribing: "text-zinc-500",
-    thinking: "text-zinc-500",
-    speaking: "text-blue-500",
-    error: "text-red-500",
-  };
-
   return (
     <div className="flex w-full max-w-sm flex-col items-center gap-6 px-4">
+      {/* Conversation title */}
+      {conversationTitle && (
+        <p className="w-full truncate text-sm font-medium text-amber-400">
+          {conversationTitle}
+        </p>
+      )}
+
       {/* Transcript */}
-      <div className="flex h-64 w-full flex-col overflow-y-auto rounded-2xl bg-zinc-900 p-4">
-        {messages.length === 0 && !assistantText ? (
+      <div className="flex h-64 w-full flex-col overflow-y-auto rounded-2xl border border-zinc-800/60 bg-zinc-900 p-4">
+        {messages.length === 0 ? (
           <p className="m-auto text-sm text-zinc-600">
             {isActive ? statusLabel[pipelineState] : "Hold the button and speak in Spanish"}
           </p>
@@ -288,7 +324,7 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
             {messages.map((msg, i) => (
               <div
                 key={i}
-                className={`mb-2 flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`mb-2 flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
               >
                 <span
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${
@@ -297,31 +333,28 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
                       : "bg-zinc-800 text-zinc-100"
                   }`}
                 >
-                  {msg.text}
+                  {msg.role === "agent" && msg.vocab?.length ? (
+                    <VocabText text={msg.text} vocab={msg.vocab} />
+                  ) : (
+                    msg.text
+                  )}
                 </span>
+                {msg.role === "agent" && msg.tip && (
+                  <p className="mt-1 max-w-[85%] px-1 text-xs text-amber-500/70">
+                    {msg.tip}
+                  </p>
+                )}
               </div>
             ))}
-            {pipelineState === "thinking" && assistantText && (
-              <div className="mb-2 flex justify-start">
-                <span className="max-w-[85%] rounded-2xl bg-zinc-800 px-3 py-2 text-sm leading-relaxed text-zinc-300">
-                  {assistantText}
-                  <span className="animate-pulse">▌</span>
-                </span>
-              </div>
-            )}
             <div ref={bottomRef} />
           </>
         )}
       </div>
 
-      {/* Visualizer */}
-      <div className={`transition-colors duration-300 ${vizColor[pipelineState]}`}>
-        <BarVisualizer
-          analyser={isRecording ? inputAnalyser : outputAnalyser}
-        />
-      </div>
+      {/* Dog mascot */}
+      <DogMascot pipelineState={pipelineState} />
 
-      {/* Button + status */}
+      {/* Mic button + status */}
       <div className="flex flex-col items-center gap-3">
         <button
           onMouseDown={handlePressStart}
@@ -335,20 +368,42 @@ export function VoicePipeline({ cefrLevel, anthropicKey }: VoicePipelineProps) {
               ? "scale-110 bg-red-500 text-white shadow-lg shadow-red-500/30"
               : isActive
               ? "bg-zinc-800 text-zinc-500"
-              : "bg-white text-black hover:bg-zinc-200"
+              : "bg-amber-400 text-black hover:bg-amber-300 shadow-lg shadow-amber-400/20"
           } disabled:cursor-not-allowed`}
         >
           {isActive && !isRecording ? <Spinner /> : <MicIcon />}
         </button>
 
-        <span className="text-sm text-zinc-500">{statusLabel[pipelineState]}</span>
+        <span className={`text-sm ${pipelineState === "error" ? "text-red-500" : "text-zinc-500"}`}>
+          {statusLabel[pipelineState]}
+        </span>
 
         {error && (
           <p className="max-w-xs text-center text-xs text-red-500">{error}</p>
         )}
+
+        {/* Toggles */}
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={handleTipToggle}
+            className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors ${
+              showTips
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-400"
+                : "border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-400"
+            }`}
+          >
+            💡 {showTips ? "Tips on" : "Tips off"}
+          </button>
+
+          <button
+            onClick={handleVoiceToggle}
+            className="flex items-center gap-2 rounded-full border border-zinc-800 px-4 py-2 text-sm text-zinc-500 transition-colors hover:border-amber-500/30 hover:text-amber-400"
+          >
+            🎙️ {voice === "norah" ? "Norah" : "Antonio"}
+          </button>
+        </div>
       </div>
 
-      {/* Show last user transcript below when in non-idle state */}
       {transcript && isActive && (
         <p className="text-center text-xs text-zinc-600">&ldquo;{transcript}&rdquo;</p>
       )}
