@@ -36,18 +36,22 @@ export function ConversationHistory({
     setConversations((prev) => prev.filter((c) => c.id !== id));
   }
 
-  if (!open) return null;
-
   return (
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
+        className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${
+          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        }`}
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-zinc-950 shadow-2xl">
+      <div
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-zinc-950 shadow-2xl transition-transform duration-300 ease-in-out ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-4">
           <h2 className="font-semibold text-white">Conversations</h2>
