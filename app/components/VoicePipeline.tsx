@@ -10,6 +10,7 @@ import {
   getTutorVoice,
   setTutorVoice,
   VOICE_IDS,
+  VOICE_NAMES,
 } from "@/lib/onboarding";
 import { recordSessionStart, recordExchange } from "@/lib/progress";
 import {
@@ -269,6 +270,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
             history: historyWithoutLast,
             showTips,
             generateTitle: shouldGenerateTitle,
+            tutorName: VOICE_NAMES[voice],
           }),
         });
 

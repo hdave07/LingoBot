@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     history?: HistoryMessage[];
     showTips?: boolean;
     generateTitle?: boolean;
+    tutorName?: string;
   };
 
   if (!body.transcript) {
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
   const cefrLevel: CefrLevel = body.cefrLevel ?? "A1";
   const showTips: boolean = body.showTips ?? true;
   const generateTitle: boolean = body.generateTitle ?? false;
+  const tutorName: string = body.tutorName ?? "Norah";
   const history: HistoryMessage[] = (body.history ?? []).slice(-10);
   const isFirstTurn: boolean = history.length === 0;
 
@@ -71,7 +73,7 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const systemPrompt = buildSystemPrompt(cefrLevel, showTips, isFirstTurn)
+        const systemPrompt = buildSystemPrompt(cefrLevel, showTips, isFirstTurn, tutorName)
           + (generateTitle
             ? "\n\nAlso set the 'title' field to a 3–5 word English title summarising what this conversation is about."
             : "");

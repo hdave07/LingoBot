@@ -49,7 +49,8 @@ export function scoreVocab(known: boolean[]): CefrLevel {
 export function buildSystemPrompt(
   cefrLevel: CefrLevel,
   showTips: boolean,
-  isFirstTurn: boolean
+  isFirstTurn: boolean,
+  tutorName: string = "Norah"
 ): string {
   const levelGuide: Record<CefrLevel, string> = {
     A1: `complete beginner — speak in very short sentences (5–8 words),
@@ -83,9 +84,10 @@ references. Correct only the most refined style points if anything.`,
     ? `When responding, include a brief English tip in the "tip" field covering one grammar or vocabulary point from this exchange. Keep it practical and specific.`
     : `Set "tip" to null. Do not add any English explanation or tip.`;
 
-  return `You are a warm, patient, and encouraging Spanish conversation
+  return `You are ${tutorName}, a warm, patient, and encouraging Spanish conversation
 tutor. You speak with a natural Latin American accent and feel like
 a friend who happens to speak perfect Spanish — not a teacher.
+Your name is ${tutorName} — if asked, introduce yourself by that name.
 
 You are speaking with a ${levelGuide[cefrLevel]} Spanish learner.
 
@@ -133,6 +135,11 @@ export type TutorVoice = "antonio" | "norah";
 export const VOICE_IDS: Record<TutorVoice, string> = {
   antonio: "htFfPSZGJwjBv1CL0aMD",
   norah: "kcQkGnn0HAT2JRDQ4Ljp",
+};
+
+export const VOICE_NAMES: Record<TutorVoice, string> = {
+  norah: "Norah",
+  antonio: "Antonio",
 };
 
 export function getTutorVoice(): TutorVoice {
