@@ -53,6 +53,23 @@ export interface VoicePipelineHandle {
   getCurrentId: () => string | null;
 }
 
+function friendlyError(raw: string): string {
+  const r = raw.toLowerCase();
+  if (r.includes("empty") || r.includes("corrupted") || r.includes("no audio") || r.includes("empty_file")) {
+    return "¿Puedes repetir? I didn't catch that — try holding a little longer.";
+  }
+  if (r.includes("microphone") || r.includes("permission") || r.includes("denied")) {
+    return "Microphone access denied — please allow mic access and try again.";
+  }
+  if (r.includes("transcri") || r.includes("stt")) {
+    return "Couldn't understand the audio — please try again.";
+  }
+  if (r.includes("claude") || r.includes("anthropic") || r.includes("api key")) {
+    return "Couldn't reach the AI — check your API key and try again.";
+  }
+  return "Something went wrong — please try again.";
+}
+
 function preferredMime(): string {
   for (const mime of ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"]) {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mime)) {
@@ -138,7 +155,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
 
     function handleError(msg: string) {
       console.error("[VoicePipeline]", msg);
-      setError(msg);
+      setError(friendlyError(msg));
       setPipelineState("error");
     }
 
@@ -387,7 +404,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
       transcribing: "Understanding…",
       thinking: "Thinking…",
       speaking: "Speaking…",
-      error: error ?? "Error",
+      error: "Tap to try again",
     };
 
     return (
