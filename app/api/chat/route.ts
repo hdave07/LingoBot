@@ -32,6 +32,10 @@ const RESPOND_TOOL: Anthropic.Tool = {
         type: ["string", "null"] as unknown as "string",
         description: "Brief English grammar or vocabulary tip, or null if tips are off.",
       },
+      title: {
+        type: ["string", "null"] as unknown as "string",
+        description: "Only when generateTitle is true: a 3–5 word English title for this conversation (e.g. 'Ordering at a café', 'Job interview prep'). Otherwise null.",
+      },
     },
     required: ["text", "vocab"],
   },
@@ -48,6 +52,7 @@ export async function POST(request: Request) {
     cefrLevel?: CefrLevel;
     history?: HistoryMessage[];
     showTips?: boolean;
+    generateTitle?: boolean;
   };
 
   if (!body.transcript) {
@@ -56,6 +61,7 @@ export async function POST(request: Request) {
 
   const cefrLevel: CefrLevel = body.cefrLevel ?? "A1";
   const showTips: boolean = body.showTips ?? true;
+  const generateTitle: boolean = body.generateTitle ?? false;
   const history: HistoryMessage[] = (body.history ?? []).slice(-10);
   const isFirstTurn: boolean = history.length === 0;
 
@@ -65,10 +71,15 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
+        const systemPrompt = buildSystemPrompt(cefrLevel, showTips, isFirstTurn)
+          + (generateTitle
+            ? "\n\nAlso set the 'title' field to a 3–5 word English title summarising what this conversation is about."
+            : "");
+
         const response = await client.messages.create({
           model: "claude-sonnet-4-6",
           max_tokens: 1024,
-          system: buildSystemPrompt(cefrLevel, showTips, isFirstTurn),
+          system: systemPrompt,
           tools: [RESPOND_TOOL],
           tool_choice: { type: "tool", name: "respond" },
           messages: [
@@ -86,6 +97,7 @@ export async function POST(request: Request) {
           text: string;
           vocab: Array<{ word: string; translation: string }>;
           tip?: string | null;
+          title?: string | null;
         };
 
         controller.enqueue(
@@ -95,6 +107,7 @@ export async function POST(request: Request) {
               text: input.text ?? "",
               vocab: input.vocab ?? [],
               tip: input.tip ?? null,
+              title: input.title ?? null,
             }) + "\n"
           )
         );
