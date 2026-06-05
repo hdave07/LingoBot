@@ -18,9 +18,14 @@ export function ProgressStrip({ cefrLevel }: { cefrLevel: CefrLevel }) {
   const [streak, setStreak] = useState(0);
 
   useEffect(() => {
-    const p = getProgress();
-    setSessions(p.sessions);
-    setStreak(p.streak);
+    const refresh = () => {
+      const p = getProgress();
+      setSessions(p.sessions);
+      setStreak(p.streak);
+    };
+    refresh();
+    window.addEventListener("lingobot:progress", refresh);
+    return () => window.removeEventListener("lingobot:progress", refresh);
   }, []);
 
   return (

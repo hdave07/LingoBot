@@ -33,6 +33,12 @@ function daysBetween(a: string, b: string): number {
   );
 }
 
+function notify() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("lingobot:progress"));
+  }
+}
+
 export function recordSessionStart(): void {
   try {
     const data = getProgress();
@@ -58,6 +64,7 @@ export function recordSessionStart(): void {
         lastPracticed: t,
       })
     );
+    notify();
   } catch { /* localStorage unavailable */ }
 }
 
@@ -68,5 +75,6 @@ export function recordExchange(): void {
       KEY,
       JSON.stringify({ ...data, exchanges: data.exchanges + 1 })
     );
+    notify();
   } catch { /* localStorage unavailable */ }
 }

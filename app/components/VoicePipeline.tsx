@@ -453,7 +453,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
           </div>
 
           {/* Dog mascot */}
-          <DogMascot pipelineState={pipelineState} />
+          <DogMascot pipelineState={summaryLoading ? "thinking" : pipelineState} />
 
           {/* Mic button + status */}
           <div className="flex flex-col items-center gap-3">

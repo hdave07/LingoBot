@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { SummaryData } from "@/app/api/summary/route";
 
 interface SessionSummaryProps {
@@ -16,7 +17,12 @@ export function SessionSummary({ summary, onContinue, onNewConversation }: Sessi
         <div className="mx-auto mb-6 h-1 w-10 rounded-full bg-zinc-700" />
 
         <div className="max-h-[75vh] overflow-y-auto px-6">
-          <h2 className="mb-6 text-lg font-semibold text-white">Session complete</h2>
+          {/* Happy dog */}
+          <div className="mb-4 flex justify-center">
+            <Image src="/dog-happy.png" alt="Good job!" width={80} height={80} className="select-none" />
+          </div>
+
+          <h2 className="mb-6 text-center text-lg font-semibold text-white">Session complete</h2>
 
           {/* Topic */}
           <Section icon="📖" label="What you practiced">
