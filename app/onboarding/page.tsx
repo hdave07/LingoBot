@@ -30,6 +30,16 @@ const SELF_REPORT_OPTIONS: { label: string; sub: string; level: CefrLevel }[] =
       sub: "most topics, some gaps",
       level: "B2",
     },
+    {
+      label: "I'm quite fluent",
+      sub: "complex topics, minor gaps",
+      level: "C1",
+    },
+    {
+      label: "I speak it almost like a native",
+      sub: "near-native fluency",
+      level: "C2",
+    },
   ];
 
 const LEVEL_LABELS: Record<CefrLevel, string> = {
@@ -37,6 +47,8 @@ const LEVEL_LABELS: Record<CefrLevel, string> = {
   A2: "Elementary",
   B1: "Intermediate",
   B2: "Upper Intermediate",
+  C1: "Advanced",
+  C2: "Near-Native",
 };
 
 export default function Onboarding() {
@@ -173,7 +185,7 @@ export default function Onboarding() {
               </button>
               <button
                 onClick={() => handleVocabAnswer(true)}
-                className="flex-1 rounded-2xl bg-white py-4 text-center font-medium text-black transition-colors hover:bg-zinc-200"
+                className="flex-1 rounded-2xl bg-amber-400 py-4 text-center font-medium text-black transition-colors hover:bg-amber-300"
               >
                 Know it
               </button>
@@ -199,7 +211,7 @@ export default function Onboarding() {
             </div>
             <button
               onClick={() => setStep(4)}
-              className="w-full rounded-2xl bg-white py-4 font-medium text-black transition-colors hover:bg-zinc-200"
+              className="w-full rounded-2xl bg-amber-400 py-4 font-medium text-black transition-colors hover:bg-amber-300"
             >
               Continue
             </button>
@@ -256,7 +268,7 @@ export default function Onboarding() {
             <button
               onClick={handleApiKeySubmit}
               disabled={!apiKey.trim()}
-              className="w-full rounded-2xl bg-white py-4 font-medium text-black transition-colors hover:bg-zinc-200 disabled:opacity-40"
+              className="w-full rounded-2xl bg-amber-400 py-4 font-medium text-black transition-colors hover:bg-amber-300 disabled:opacity-40"
             >
               Start learning
             </button>

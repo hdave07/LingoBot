@@ -2,7 +2,7 @@ export const maxDuration = 30;
 
 export async function POST(request: Request) {
   const formData = await request.formData();
-  const audio = formData.get("audio") as Blob | null;
+  const audio = formData.get("file") as Blob | null;
 
   if (!audio) {
     return Response.json({ error: "No audio provided" }, { status: 400 });
