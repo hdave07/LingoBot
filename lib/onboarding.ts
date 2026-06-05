@@ -1,47 +1,42 @@
 export type CefrLevel = "A1" | "A2" | "B1" | "B2" | "C1" | "C2";
-export type PlacementMethod = "self_report" | "vocab_test";
+export type PlacementMethod = "self_report" | "vocab_test" | "speaking_test";
+export type TutorLanguage = "es" | "pt-br" | "pt-pt";
 
 export interface OnboardingData {
   initialLevel: CefrLevel;
   cefrLevel: CefrLevel;
   placementMethod: PlacementMethod;
-  targetLanguage: "es";
+  targetLanguage: "es" | "pt";
+  ptDialect?: "br" | "pt-pt";
   completedAt: string;
   anthropicKeySet: boolean;
 }
 
-export interface VocabWord {
-  word: string;
-  translation: string;
-  level: CefrLevel;
+// --- Language helpers ---
+
+export function getLanguageName(lang: TutorLanguage): string {
+  if (lang === "es") return "Spanish";
+  return "Portuguese";
 }
 
-export const VOCAB_WORDS: VocabWord[] = [
-  { word: "hola", translation: "hello", level: "A1" },
-  { word: "agua", translation: "water", level: "A1" },
-  { word: "comer", translation: "to eat", level: "A1" },
-  { word: "ciudad", translation: "city", level: "A2" },
-  { word: "trabajo", translation: "work / job", level: "A2" },
-  { word: "siempre", translation: "always", level: "A2" },
-  { word: "aunque", translation: "although / even though", level: "B1" },
-  { word: "lograr", translation: "to achieve", level: "B1" },
-  { word: "madrugada", translation: "early morning / dawn", level: "B2" },
-  { word: "cotidiano", translation: "everyday / daily", level: "B2" },
-  { word: "imprescindible", translation: "essential / indispensable", level: "C1" },
-  { word: "añoranza", translation: "longing / nostalgia", level: "C1" },
-  { word: "resquemor", translation: "lingering resentment / bitterness", level: "C2" },
-  { word: "escabullirse", translation: "to slip away / sneak off", level: "C2" },
-];
+export function getLanguageFullName(lang: TutorLanguage): string {
+  if (lang === "es") return "Spanish";
+  if (lang === "pt-br") return "Brazilian Portuguese";
+  return "European Portuguese";
+}
 
-// 14 words: 3×A1, 3×A2, 2×B1, 2×B2, 2×C1, 2×C2
-export function scoreVocab(known: boolean[]): CefrLevel {
-  const total = known.filter(Boolean).length;
-  if (total <= 2) return "A1";
-  if (total <= 5) return "A2";
-  if (total <= 8) return "B1";
-  if (total <= 10) return "B2";
-  if (total <= 12) return "C1";
-  return "C2";
+export function getTutorLanguageLabel(lang: TutorLanguage): string {
+  if (lang === "es") return "Spanish";
+  if (lang === "pt-br") return "Port. (BR)";
+  return "Port. (EU)";
+}
+
+export function getLanguageBaseCode(lang: TutorLanguage): "es" | "pt" {
+  return lang === "es" ? "es" : "pt";
+}
+
+export function getSttLanguageCode(lang: TutorLanguage): string {
+  return lang === "es" ? "es" : "pt";
 }
 
 // --- System prompt ---
@@ -50,12 +45,21 @@ export function buildSystemPrompt(
   cefrLevel: CefrLevel,
   showTips: boolean,
   isFirstTurn: boolean,
-  tutorName: string = "Norah"
+  tutorName: string = "Norah",
+  tutorLanguage: TutorLanguage = "es"
 ): string {
+  const langName = getLanguageName(tutorLanguage);
+  const accentDesc =
+    tutorLanguage === "es"
+      ? "natural Latin American accent"
+      : tutorLanguage === "pt-br"
+      ? "natural Brazilian Portuguese accent"
+      : "natural European Portuguese (continental) accent";
+
   const levelGuide: Record<CefrLevel, string> = {
     A1: `complete beginner — speak in very short sentences (5–8 words),
 present tense only, basic A1 vocabulary only.
-After every Spanish sentence, add the English translation
+After every ${langName} sentence, add the English translation
 in parentheses so the learner can follow along.`,
 
     A2: `elementary learner — use present and simple past tense,
@@ -84,22 +88,22 @@ references. Correct only the most refined style points if anything.`,
     ? `When responding, include a brief English tip in the "tip" field covering one grammar or vocabulary point from this exchange. Keep it practical and specific.`
     : `Set "tip" to null. Do not add any English explanation or tip.`;
 
-  return `You are ${tutorName}, a warm, patient, and encouraging Spanish conversation
-tutor. You speak with a natural Latin American accent and feel like
-a friend who happens to speak perfect Spanish — not a teacher.
+  return `You are ${tutorName}, a warm, patient, and encouraging ${langName} conversation
+tutor. You speak with a ${accentDesc} and feel like
+a friend who happens to speak perfect ${langName} — not a teacher.
 Your name is ${tutorName} — if asked, introduce yourself by that name.
 
-You are speaking with a ${levelGuide[cefrLevel]} Spanish learner.
+You are speaking with a ${levelGuide[cefrLevel]} ${langName} learner.
 
 # Behavior
-- Respond in Spanish at the complexity level described above
+- Respond in ${langName} at the complexity level described above
 - Assess the student's real level through conversation naturally —
   do not ask "what level are you?" — just start speaking and adapt
 - Gently correct errors by modeling the correct form naturally
   within your reply — never lecture or embarrass
 - If the learner makes the same mistake twice, address it directly
   but kindly: "Almost! Try saying it like this..."
-- Keep responses concise: 2–4 sentences of Spanish
+- Keep responses concise: 2–4 sentences of ${langName}
 - Always end your turn with a question or prompt to keep
   the conversation flowing
 - Celebrate small wins genuinely: "¡Perfecto! That subjunctive
@@ -129,18 +133,35 @@ Only flag vocab words that arose naturally in your response AND that the learner
 
 // --- Voice preference ---
 
-export type TutorVoice = "antonio" | "norah";
+export type TutorVoice = "antonio" | "norah" | "scheila" | "paulo";
 
-// TODO: paste the ElevenLabs voice IDs here (found in the voice library URL)
 export const VOICE_IDS: Record<TutorVoice, string> = {
   antonio: "htFfPSZGJwjBv1CL0aMD",
   norah: "kcQkGnn0HAT2JRDQ4Ljp",
+  scheila: "cyD08lEy76q03ER1jZ7y",
+  paulo: "aLFUti4k8YKvtQGXv0UO",
 };
 
 export const VOICE_NAMES: Record<TutorVoice, string> = {
   norah: "Norah",
   antonio: "Antonio",
+  scheila: "Scheila",
+  paulo: "Paulo",
 };
+
+export function getDefaultVoiceForLanguage(lang: TutorLanguage): TutorVoice {
+  if (lang === "es") return "norah";
+  if (lang === "pt-br") return "scheila";
+  return "paulo";
+}
+
+export function getNextVoiceForLanguage(
+  voice: TutorVoice,
+  lang: TutorLanguage
+): TutorVoice {
+  if (lang === "es") return voice === "norah" ? "antonio" : "norah";
+  return voice === "scheila" ? "paulo" : "scheila";
+}
 
 export function getTutorVoice(): TutorVoice {
   if (typeof window === "undefined") return "norah";
@@ -151,13 +172,64 @@ export function setTutorVoice(voice: TutorVoice): void {
   localStorage.setItem("lingobot_voice", voice);
 }
 
+// --- Active language preference ---
+
+export function getActiveLanguage(): TutorLanguage {
+  if (typeof window === "undefined") return "es";
+  return (localStorage.getItem("lingobot_language") as TutorLanguage) ?? "es";
+}
+
+export function setActiveLanguage(lang: TutorLanguage): void {
+  localStorage.setItem("lingobot_language", lang);
+}
+
+// --- Per-language CEFR levels ---
+
+export function getCefrForLanguage(lang: "es" | "pt"): CefrLevel {
+  if (typeof window === "undefined") return "A1";
+  const key = lang === "es" ? "lingobot_cefr_es" : "lingobot_cefr_pt";
+  return (localStorage.getItem(key) as CefrLevel) ?? "A1";
+}
+
+export function setCefrForLanguage(lang: "es" | "pt", level: CefrLevel): void {
+  const key = lang === "es" ? "lingobot_cefr_es" : "lingobot_cefr_pt";
+  localStorage.setItem(key, level);
+}
+
+export function hasTestedForLanguage(lang: "es" | "pt"): boolean {
+  if (typeof window === "undefined") return false;
+  const key = lang === "es" ? "lingobot_cefr_es" : "lingobot_cefr_pt";
+  return localStorage.getItem(key) !== null;
+}
+
+// Copies old onboarding cefrLevel into the per-language key so existing users
+// don't get asked to re-test a language they already set up.
+export function migrateOnboardingData(): void {
+  if (typeof window === "undefined") return;
+  const data = getOnboarding();
+  if (!data) return;
+
+  const base = data.targetLanguage;
+  const key = base === "es" ? "lingobot_cefr_es" : "lingobot_cefr_pt";
+  if (!localStorage.getItem(key)) {
+    localStorage.setItem(key, data.cefrLevel);
+  }
+
+  if (!localStorage.getItem("lingobot_language")) {
+    const lang: TutorLanguage =
+      base === "es" ? "es"
+      : data.ptDialect === "br" ? "pt-br"
+      : "pt-pt";
+    localStorage.setItem("lingobot_language", lang);
+  }
+}
+
 // --- Tips preference ---
 
 export function getShowTips(): boolean {
   if (typeof window === "undefined") return true;
   const stored = localStorage.getItem("lingobot_show_tips");
   if (stored !== null) return stored === "true";
-  // Default: on for beginners, off for B1 and above
   const onboarding = getOnboarding();
   const level = onboarding?.cefrLevel ?? "A1";
   return level === "A1" || level === "A2";

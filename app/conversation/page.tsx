@@ -2,33 +2,53 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getOnboarding } from "@/lib/onboarding";
-import { getAnthropicKey } from "@/lib/anthropic-key";
+import {
+  getOnboarding,
+  getActiveLanguage,
+  getCefrForLanguage,
+  getLanguageBaseCode,
+  setCefrForLanguage,
+  migrateOnboardingData,
+} from "@/lib/onboarding";
 import { VoicePipeline } from "../components/VoicePipeline";
 import { ProgressStrip } from "../components/ProgressStrip";
 import { ConversationHistory } from "../components/ConversationHistory";
-import type { CefrLevel } from "@/lib/onboarding";
+import type { CefrLevel, TutorLanguage } from "@/lib/onboarding";
 import type { VoicePipelineHandle } from "../components/VoicePipeline";
 
 export default function ConversationPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [cefrLevel, setCefrLevel] = useState<CefrLevel>("A1");
-  const [anthropicKey, setAnthropicKey] = useState("");
+  const [activeLang, setActiveLang] = useState<TutorLanguage>("es");
+  const [anthropicKey] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const pipelineRef = useRef<VoicePipelineHandle>(null);
 
   useEffect(() => {
+    migrateOnboardingData();
     const data = getOnboarding();
-    const key = getAnthropicKey();
-    if (!data || !key) {
+    if (!data) {
       router.replace("/onboarding");
       return;
     }
-    setCefrLevel(data.cefrLevel);
-    setAnthropicKey(key);
+    const lang = getActiveLanguage();
+    const baseCode = getLanguageBaseCode(lang);
+    setActiveLang(lang);
+    setCefrLevel(getCefrForLanguage(baseCode) ?? data.cefrLevel);
+    // anthropicKey stays "" — server uses ANTHROPIC_API_KEY env var
     setReady(true);
   }, [router]);
+
+  function handleLevelChange(level: CefrLevel) {
+    setCefrLevel(level);
+    setCefrForLanguage(getLanguageBaseCode(activeLang), level);
+  }
+
+  function handleLanguageChange(lang: TutorLanguage, level: CefrLevel) {
+    setActiveLang(lang);
+    setCefrLevel(level);
+  }
 
   if (!ready) return <div className="min-h-screen bg-black" />;
 
@@ -46,9 +66,8 @@ export default function ConversationPage() {
           </svg>
         </button>
 
-        <ProgressStrip cefrLevel={cefrLevel} />
+        <ProgressStrip cefrLevel={cefrLevel} onLevelChange={handleLevelChange} />
 
-        {/* Spacer for symmetry */}
         <div className="w-8" />
       </div>
 
@@ -58,6 +77,7 @@ export default function ConversationPage() {
           ref={pipelineRef}
           cefrLevel={cefrLevel}
           anthropicKey={anthropicKey}
+          onLanguageChange={handleLanguageChange}
         />
       </div>
 
@@ -65,9 +85,14 @@ export default function ConversationPage() {
       <ConversationHistory
         open={historyOpen}
         currentId={pipelineRef.current?.getCurrentId() ?? null}
+        currentLanguage={activeLang}
+        anthropicKey={anthropicKey}
         onClose={() => setHistoryOpen(false)}
-        onLoad={(id) => pipelineRef.current?.loadConversationById(id)}
-        onNew={() => pipelineRef.current?.startNewConversation()}
+        onLoad={(id) => { pipelineRef.current?.loadConversationById(id); setHistoryOpen(false); }}
+        onNewWithLanguage={(lang, level) => {
+          pipelineRef.current?.startNewConversationWithLanguage(lang, level);
+          setHistoryOpen(false);
+        }}
       />
     </div>
   );

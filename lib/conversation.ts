@@ -10,6 +10,7 @@ export interface ConversationRecord {
   title: string | null;
   messages: SavedMessage[];
   cefrLevel: string;
+  language?: string; // TutorLanguage — optional for backwards compat with old records
   savedAt: string;
 }
 

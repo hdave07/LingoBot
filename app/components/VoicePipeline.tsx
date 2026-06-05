@@ -11,6 +11,13 @@ import {
   setTutorVoice,
   VOICE_IDS,
   VOICE_NAMES,
+  getActiveLanguage,
+  setActiveLanguage,
+  getCefrForLanguage,
+  getDefaultVoiceForLanguage,
+  getNextVoiceForLanguage,
+  getSttLanguageCode,
+  getLanguageBaseCode,
 } from "@/lib/onboarding";
 import { recordSessionStart, recordExchange } from "@/lib/progress";
 import {
@@ -20,7 +27,7 @@ import {
   setCurrentConversationId,
   createConversationId,
 } from "@/lib/conversation";
-import type { CefrLevel, TutorVoice } from "@/lib/onboarding";
+import type { CefrLevel, TutorLanguage, TutorVoice } from "@/lib/onboarding";
 import type { SummaryData } from "@/app/api/summary/route";
 
 type PipelineState =
@@ -46,12 +53,15 @@ interface Message {
 interface VoicePipelineProps {
   cefrLevel: CefrLevel;
   anthropicKey: string;
+  onLanguageChange?: (lang: TutorLanguage, cefrLevel: CefrLevel) => void;
 }
 
 export interface VoicePipelineHandle {
   loadConversationById: (id: string) => void;
   startNewConversation: () => void;
+  startNewConversationWithLanguage: (lang: TutorLanguage, cefrLevel: CefrLevel) => void;
   getCurrentId: () => string | null;
+  getCurrentLanguage: () => TutorLanguage;
 }
 
 function friendlyError(raw: string): string {
@@ -71,6 +81,13 @@ function friendlyError(raw: string): string {
   return "Something went wrong — please try again.";
 }
 
+const IDLE_PROMPTS = [
+  "Try: tell me about your day",
+  "Try: describe where you live",
+  "Try: what do you enjoy doing?",
+  "Try: talk about your work or studies",
+];
+
 function preferredMime(): string {
   for (const mime of ["audio/webm;codecs=opus", "audio/ogg;codecs=opus"]) {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mime)) {
@@ -81,24 +98,38 @@ function preferredMime(): string {
 }
 
 export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>(
-  function VoicePipeline({ cefrLevel, anthropicKey }, ref) {
+  function VoicePipeline({ cefrLevel: cefrLevelProp, anthropicKey, onLanguageChange }, ref) {
     const [pipelineState, setPipelineState] = useState<PipelineState>("idle");
     const [transcript, setTranscript] = useState("");
     const [messages, setMessages] = useState<Message[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [showTips, setShowTipsState] = useState(true);
     const [voice, setVoiceState] = useState<TutorVoice>("norah");
+    const [tutorLanguage, setTutorLanguageState] = useState<TutorLanguage>("es");
+    const [activeCefrLevel, setActiveCefrLevel] = useState<CefrLevel>(cefrLevelProp);
     const [conversationTitle, setConversationTitle] = useState<string | null>(null);
     const [conversationId, setConversationId] = useState<string | null>(null);
     const [summaryData, setSummaryData] = useState<SummaryData | null>(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
 
+    const [promptIdx, setPromptIdx] = useState(0);
+
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
     const audioCtxRef = useRef<AudioContext | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
+    const pressStartRef = useRef<() => Promise<void>>(async () => {});
+    const pressEndRef = useRef<() => Promise<void>>(async () => {});
 
-    // Expose imperative handle for the history drawer
+    // Sync when parent updates cefrLevel (e.g. ProgressStrip level change)
+    const prevCefrPropRef = useRef(cefrLevelProp);
+    useEffect(() => {
+      if (cefrLevelProp !== prevCefrPropRef.current) {
+        prevCefrPropRef.current = cefrLevelProp;
+        setActiveCefrLevel(cefrLevelProp);
+      }
+    }, [cefrLevelProp]);
+
     useImperativeHandle(ref, () => ({
       loadConversationById(id: string) {
         const conv = getConversation(id);
@@ -119,14 +150,37 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
         setError(null);
         setPipelineState("idle");
       },
+      startNewConversationWithLanguage(lang: TutorLanguage, cefrLevel: CefrLevel) {
+        const nextVoice = getDefaultVoiceForLanguage(lang);
+        setActiveLanguage(lang);
+        setTutorVoice(nextVoice);
+        setTutorLanguageState(lang);
+        setVoiceState(nextVoice);
+        setActiveCefrLevel(cefrLevel);
+        setMessages([]);
+        setConversationTitle(null);
+        setConversationId(null);
+        setSummaryData(null);
+        setError(null);
+        setPipelineState("idle");
+        onLanguageChange?.(lang, cefrLevel);
+      },
       getCurrentId() {
         return conversationId;
+      },
+      getCurrentLanguage() {
+        return tutorLanguage;
       },
     }));
 
     useEffect(() => {
       setShowTipsState(getShowTips());
-      setVoiceState(getTutorVoice());
+      const lang = getActiveLanguage();
+      setTutorLanguageState(lang);
+      const savedVoice = getTutorVoice();
+      setVoiceState(savedVoice);
+      setActiveCefrLevel(getCefrForLanguage(getLanguageBaseCode(lang)) ?? cefrLevelProp);
+
       const currentId = getCurrentConversationId();
       if (currentId) {
         const saved = getConversation(currentId);
@@ -136,11 +190,43 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
           setConversationId(currentId);
         }
       }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
+
+    // Rotate idle prompt suggestions
+    useEffect(() => {
+      if (messages.length > 0 || pipelineState !== "idle") return;
+      const t = setInterval(() => setPromptIdx((i) => (i + 1) % IDLE_PROMPTS.length), 4000);
+      return () => clearInterval(t);
+    }, [messages.length, pipelineState]);
+
+    // Space bar = hold to record on desktop
+    useEffect(() => {
+      const onDown = (e: KeyboardEvent) => {
+        if (e.code !== "Space" || e.repeat) return;
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON") return;
+        e.preventDefault();
+        pressStartRef.current();
+      };
+      const onUp = (e: KeyboardEvent) => {
+        if (e.code !== "Space") return;
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON") return;
+        e.preventDefault();
+        pressEndRef.current();
+      };
+      window.addEventListener("keydown", onDown);
+      window.addEventListener("keyup", onUp);
+      return () => {
+        window.removeEventListener("keydown", onDown);
+        window.removeEventListener("keyup", onUp);
+      };
+    }, []);
 
     function handleTipToggle() {
       const next = !showTips;
@@ -149,9 +235,16 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
     }
 
     function handleVoiceToggle() {
-      const next: TutorVoice = voice === "norah" ? "antonio" : "norah";
+      const next = getNextVoiceForLanguage(voice, tutorLanguage);
       setTutorVoice(next);
       setVoiceState(next);
+
+      // For Portuguese, switching voice also switches the dialect — but does NOT clear the session
+      if (tutorLanguage !== "es") {
+        const nextLang: TutorLanguage = next === "scheila" ? "pt-br" : "pt-pt";
+        setActiveLanguage(nextLang);
+        setTutorLanguageState(nextLang);
+      }
     }
 
     function handleError(msg: string) {
@@ -202,7 +295,6 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
     }
 
     async function runPipeline(audioBlob: Blob) {
-      // Create conversation ID on first message
       let currentId = conversationId;
       if (messages.length === 0) {
         recordSessionStart();
@@ -215,7 +307,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
       setPipelineState("transcribing");
       const fd = new FormData();
       fd.append("file", audioBlob, "recording.webm");
-      fd.append("language", "es");
+      fd.append("language", getSttLanguageCode(tutorLanguage));
 
       let userTranscript = "";
       try {
@@ -239,7 +331,6 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
       ];
       setMessages(updatedMessages);
 
-      // Generate title on the second user message
       const userCount = updatedMessages.filter((m) => m.role === "user").length;
       const shouldGenerateTitle = userCount === 2 && !conversationTitle;
 
@@ -266,11 +357,12 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
           },
           body: JSON.stringify({
             transcript: userTranscript,
-            cefrLevel,
+            cefrLevel: activeCefrLevel,
             history: historyWithoutLast,
             showTips,
             generateTitle: shouldGenerateTitle,
             tutorName: VOICE_NAMES[voice],
+            tutorLanguage,
           }),
         });
 
@@ -327,7 +419,8 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
           id: currentId,
           title: newTitle,
           messages: nextMessages,
-          cefrLevel,
+          cefrLevel: activeCefrLevel,
+          language: tutorLanguage,
           savedAt: new Date().toISOString(),
         });
       }
@@ -383,7 +476,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
             "Content-Type": "application/json",
             "x-anthropic-key": anthropicKey,
           },
-          body: JSON.stringify({ messages, cefrLevel }),
+          body: JSON.stringify({ messages, cefrLevel: activeCefrLevel, tutorLanguage }),
         });
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
@@ -395,10 +488,18 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
       }
     }
 
+    // Keep refs pointing at latest functions for the spacebar listener
+    pressStartRef.current = handlePressStart;
+    pressEndRef.current = handlePressEnd;
+
     const isActive = pipelineState !== "idle" && pipelineState !== "error";
     const isRecording = pipelineState === "recording";
     const agentMessageCount = messages.filter((m) => m.role === "agent").length;
     const showEndSession = agentMessageCount >= 2 && pipelineState === "idle";
+
+    const idlePlaceholder = `Hold the button and speak in ${
+      tutorLanguage === "es" ? "Spanish" : "Portuguese"
+    }`;
 
     const statusLabel: Record<PipelineState, string> = {
       idle: "Hold to speak",
@@ -408,6 +509,11 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
       speaking: "Speaking…",
       error: "Tap to try again",
     };
+
+    // Voice toggle label shows both options so it's clear what tapping does
+    const voiceToggleLabel = tutorLanguage === "es"
+      ? (voice === "norah" ? "Norah" : "Antonio")
+      : (voice === "scheila" ? "Scheila" : "Paulo");
 
     return (
       <>
@@ -436,9 +542,14 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
           {/* Transcript */}
           <div className="flex h-64 w-full flex-col overflow-y-auto rounded-2xl border border-zinc-800/60 bg-zinc-900 p-4">
             {messages.length === 0 ? (
-              <p className="m-auto text-sm text-zinc-600">
-                {isActive ? statusLabel[pipelineState] : "Hold the button and speak in Spanish"}
-              </p>
+              <div className="m-auto flex flex-col items-center gap-2 text-center">
+                <p className="text-sm text-zinc-600">
+                  {isActive ? statusLabel[pipelineState] : idlePlaceholder}
+                </p>
+                {!isActive && (
+                  <p className="text-xs text-zinc-700">{IDLE_PROMPTS[promptIdx]}</p>
+                )}
+              </div>
             ) : (
               <>
                 {messages.map((msg, i) => (
@@ -519,9 +630,14 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
                 onClick={handleVoiceToggle}
                 className="flex items-center gap-2 rounded-full border border-zinc-800 px-4 py-2 text-sm text-zinc-500 transition-colors hover:border-amber-500/30 hover:text-amber-400"
               >
-                🎙️ {voice === "norah" ? "Norah" : "Antonio"}
+                🎙️ {voiceToggleLabel}
               </button>
             </div>
+
+            {/* Language indicator */}
+            <p className="text-xs text-zinc-600">
+              {tutorLanguage === "es" ? "Español" : tutorLanguage === "pt-br" ? "Português (BR)" : "Português (EU)"}
+            </p>
 
             {/* End session */}
             {showEndSession && (
