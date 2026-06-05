@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const alt =
-  "LingoBot — Foreign Language conversation partner with a friendly dog mascot";
+  "TalkMore — Foreign Language conversation partner with a friendly dog mascot";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -70,7 +70,7 @@ export default async function Image() {
             letterSpacing: "-0.03em",
           }}
         >
-          LingoBot
+          TalkMore
         </div>
 
         <div
@@ -109,7 +109,7 @@ export default async function Image() {
         </div>
       </div>
 
-      { }
+      {}
       <img
         src={dogSrc}
         alt=""
