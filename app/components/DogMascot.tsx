@@ -78,7 +78,7 @@ export function DogMascot({ pipelineState }: { pipelineState: PipelineState }) {
   }, [pipelineState]);
 
   return (
-    <div className="relative h-[140px] w-[140px] flex-shrink-0">
+    <div className="relative h-[100px] w-[100px] flex-shrink-0">
       <Image
         src={`/${dogImage}.png`}
         alt={dogImage}

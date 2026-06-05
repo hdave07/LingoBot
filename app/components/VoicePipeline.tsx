@@ -141,6 +141,19 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
         setSummaryData(null);
         setError(null);
         setPipelineState("idle");
+
+        // Restore the language and voice the conversation was recorded in
+        if (conv.language) {
+          const lang = conv.language as TutorLanguage;
+          const base = getLanguageBaseCode(lang);
+          const restoredVoice = getDefaultVoiceForLanguage(lang);
+          setActiveLanguage(lang);
+          setTutorVoice(restoredVoice);
+          setTutorLanguageState(lang);
+          setVoiceState(restoredVoice);
+          setActiveCefrLevel(getCefrForLanguage(base));
+          onLanguageChange?.(lang, getCefrForLanguage(base));
+        }
       },
       startNewConversation() {
         setMessages([]);
@@ -532,15 +545,15 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
         )}
 
         <div className="flex w-full max-w-sm flex-col items-center gap-6 px-4">
-          {/* Conversation title */}
-          {conversationTitle && (
-            <p className="w-full truncate text-sm font-medium text-amber-400">
-              {conversationTitle}
-            </p>
-          )}
+          {/* Title + chat box grouped so the title sits tight above the box */}
+          <div className="flex w-full flex-col gap-1.5">
+            {conversationTitle && (
+              <p className="w-full truncate text-sm font-medium text-amber-400">
+                {conversationTitle}
+              </p>
+            )}
 
-          {/* Transcript */}
-          <div className="flex h-64 w-full flex-col overflow-y-auto rounded-2xl border border-zinc-800/60 bg-zinc-900 p-4">
+            <div className="flex h-80 w-full flex-col overflow-y-auto rounded-2xl border border-zinc-800/60 bg-zinc-900 p-4">
             {messages.length === 0 ? (
               <div className="m-auto flex flex-col items-center gap-2 text-center">
                 <p className="text-sm text-zinc-600">
@@ -580,6 +593,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
                 <div ref={bottomRef} />
               </>
             )}
+            </div>
           </div>
 
           {/* Dog mascot */}

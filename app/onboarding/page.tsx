@@ -194,6 +194,11 @@ export default function Onboarding() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-black px-6 text-white">
       <div className="w-full max-w-sm">
 
+        {/* Wordmark */}
+        <p className="mb-10 text-center text-sm font-bold tracking-[0.2em] text-white uppercase">
+          TalkMore
+        </p>
+
         {/* Progress dots */}
         <div className="mb-12 flex justify-center gap-2">
           {[1, 2, 3].map((s) => (

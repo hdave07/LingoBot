@@ -54,8 +54,13 @@ export default function ConversationPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-black">
+      {/* Wordmark */}
+      <p className="pt-6 text-center text-sm font-bold tracking-[0.2em] text-white uppercase">
+        TalkMore
+      </p>
+
       {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-8 pb-2">
+      <div className="flex items-center justify-between px-4 pt-3 pb-2">
         <button
           onClick={() => setHistoryOpen(true)}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-amber-400"
