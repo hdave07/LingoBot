@@ -58,6 +58,7 @@ export async function POST(request: Request) {
     generateTitle?: boolean;
     tutorName?: string;
     tutorLanguage?: TutorLanguage;
+    priorContext?: string;
   };
 
   if (!body.transcript) {
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
   const generateTitle: boolean = body.generateTitle ?? false;
   const tutorName: string = body.tutorName ?? "Norah";
   const tutorLanguage: TutorLanguage = body.tutorLanguage ?? "es";
+  const priorContext: string | null = body.priorContext ?? null;
   const history: HistoryMessage[] = (body.history ?? []).slice(-10);
   const isFirstTurn: boolean = history.length === 0;
 
@@ -86,6 +88,9 @@ export async function POST(request: Request) {
         const systemPrompt = buildSystemPrompt(cefrLevel, showTips, isFirstTurn, tutorName, tutorLanguage)
           + (generateTitle
             ? "\n\nAlso set the 'title' field to a 3–5 word English title summarising what this conversation is about."
+            : "")
+          + (isFirstTurn && priorContext
+            ? `\n\n# Prior session context\n${priorContext}\nUse this to personalise the session — pick up where they left off, revisit weak points naturally, celebrate progress. Do not recite this list back to them.`
             : "");
 
         const response = await client.messages.create({

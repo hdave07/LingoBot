@@ -9,6 +9,8 @@ import {
   getLanguageBaseCode,
   setCefrForLanguage,
   migrateOnboardingData,
+  getAnthropicKey,
+  saveAnthropicKey,
 } from "@/lib/onboarding";
 import { VoicePipeline } from "../components/VoicePipeline";
 import { ProgressStrip } from "../components/ProgressStrip";
@@ -21,8 +23,11 @@ export default function ConversationPage() {
   const [ready, setReady] = useState(false);
   const [cefrLevel, setCefrLevel] = useState<CefrLevel>("A1");
   const [activeLang, setActiveLang] = useState<TutorLanguage>("es");
-  const [anthropicKey] = useState("");
+  const [anthropicKey, setAnthropicKey] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [keyError, setKeyError] = useState("");
   const pipelineRef = useRef<VoicePipelineHandle>(null);
 
   useEffect(() => {
@@ -36,9 +41,35 @@ export default function ConversationPage() {
     const baseCode = getLanguageBaseCode(lang);
     setActiveLang(lang);
     setCefrLevel(getCefrForLanguage(baseCode) ?? data.cefrLevel);
-    // anthropicKey stays "" — server uses ANTHROPIC_API_KEY env var
+
+    const storedKey = getAnthropicKey();
+    setAnthropicKey(storedKey);
+
+    // If no key in storage, check whether the server has one; if not, prompt the user
+    if (!storedKey) {
+      fetch("/api/has-key")
+        .then((r) => r.json())
+        .then(({ serverKeySet }: { serverKeySet: boolean }) => {
+          if (!serverKeySet) setShowKeyModal(true);
+        })
+        .catch(() => {});
+    }
+
     setReady(true);
   }, [router]);
+
+  function handleSaveKey() {
+    const trimmed = keyInput.trim();
+    if (!trimmed.startsWith("sk-ant-")) {
+      setKeyError("Should start with sk-ant-");
+      return;
+    }
+    saveAnthropicKey(trimmed);
+    setAnthropicKey(trimmed);
+    setShowKeyModal(false);
+    setKeyInput("");
+    setKeyError("");
+  }
 
   function handleLevelChange(level: CefrLevel) {
     setCefrLevel(level);
@@ -73,7 +104,17 @@ export default function ConversationPage() {
 
         <ProgressStrip cefrLevel={cefrLevel} onLevelChange={handleLevelChange} />
 
-        <div className="w-8" />
+        <button
+          onClick={() => { setKeyInput(anthropicKey); setKeyError(""); setShowKeyModal(true); }}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-amber-400"
+          aria-label="API key settings"
+          title="API key settings"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="7.5" cy="15.5" r="5.5" />
+            <path d="M11 12l8.5-8.5M18 3l3 3-1.5 1.5-3-3M14.5 6.5l3 3" />
+          </svg>
+        </button>
       </div>
 
       {/* Main */}
@@ -99,6 +140,56 @@ export default function ConversationPage() {
           setHistoryOpen(false);
         }}
       />
+
+      {/* API key modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-6">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
+            <h2 className="text-lg font-semibold text-white">Anthropic API key</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Stored only in your browser. Get one at{" "}
+              <a
+                href="https://console.anthropic.com/settings/keys"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-amber-400 hover:underline"
+              >
+                console.anthropic.com
+              </a>
+              .
+            </p>
+
+            <input
+              type="password"
+              value={keyInput}
+              onChange={(e) => { setKeyInput(e.target.value); setKeyError(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSaveKey(); }}
+              placeholder="sk-ant-..."
+              autoFocus
+              className="mt-4 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-zinc-600"
+            />
+            {keyError && <p className="mt-1 text-xs text-red-400">{keyError}</p>}
+
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={handleSaveKey}
+                disabled={!keyInput.trim()}
+                className="flex-1 rounded-xl bg-amber-400 py-2.5 text-sm font-medium text-black transition-colors hover:bg-amber-300 disabled:opacity-40"
+              >
+                Save
+              </button>
+              {anthropicKey && (
+                <button
+                  onClick={() => { setShowKeyModal(false); setKeyInput(""); setKeyError(""); }}
+                  className="flex-1 rounded-xl border border-zinc-800 py-2.5 text-sm text-zinc-400 transition-colors hover:border-zinc-600 hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

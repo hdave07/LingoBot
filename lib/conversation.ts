@@ -5,12 +5,22 @@ export interface SavedMessage {
   tip?: string | null;
 }
 
+export interface ConversationSummary {
+  topic: string;
+  wordsLearned: Array<{ word: string; translation: string }>;
+  mistakes: Array<{ error: string; correction: string }>;
+  strength: string;
+  focusNext: string;
+  encouragement: string;
+}
+
 export interface ConversationRecord {
   id: string;
   title: string | null;
   messages: SavedMessage[];
   cefrLevel: string;
   language?: string; // TutorLanguage — optional for backwards compat with old records
+  summary?: ConversationSummary;
   savedAt: string;
 }
 

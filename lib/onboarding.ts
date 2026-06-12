@@ -263,3 +263,16 @@ export function isOnboardingComplete(): boolean {
 export function clearOnboarding() {
   localStorage.removeItem(KEY);
 }
+
+// --- Anthropic API key (BYOK) ---
+
+const ANTHROPIC_KEY_STORAGE = "lingobot_anthropic_key";
+
+export function saveAnthropicKey(key: string): void {
+  localStorage.setItem(ANTHROPIC_KEY_STORAGE, key.trim());
+}
+
+export function getAnthropicKey(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(ANTHROPIC_KEY_STORAGE) ?? "";
+}

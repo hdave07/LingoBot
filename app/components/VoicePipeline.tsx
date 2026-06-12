@@ -23,6 +23,7 @@ import { recordSessionStart, recordExchange } from "@/lib/progress";
 import {
   saveConversation,
   getConversation,
+  getConversations,
   getCurrentConversationId,
   setCurrentConversationId,
   createConversationId,
@@ -79,6 +80,21 @@ function friendlyError(raw: string): string {
     return "Couldn't reach the AI — check your API key and try again.";
   }
   return "Something went wrong — please try again.";
+}
+
+function buildPriorContext(lang: TutorLanguage): string | null {
+  const recent = getConversations()
+    .filter((c) => c.language === lang && c.summary)
+    .at(0);
+  if (!recent?.summary) return null;
+  const s = recent.summary;
+  const words = s.wordsLearned.map((w) => w.word).join(", ");
+  return [
+    `The learner's last session topic: ${s.topic}.`,
+    words ? `Words they picked up: ${words}.` : "",
+    `What went well: ${s.strength}.`,
+    `Focus for this session: ${s.focusNext}.`,
+  ].filter(Boolean).join(" ");
 }
 
 const IDLE_PROMPTS = [
@@ -346,6 +362,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
 
       const userCount = updatedMessages.filter((m) => m.role === "user").length;
       const shouldGenerateTitle = userCount === 2 && !conversationTitle;
+      const priorContext = messages.length === 0 ? buildPriorContext(tutorLanguage) : null;
 
       // --- Claude ---
       setPipelineState("thinking");
@@ -376,6 +393,7 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
             generateTitle: shouldGenerateTitle,
             tutorName: VOICE_NAMES[voice],
             tutorLanguage,
+            priorContext,
           }),
         });
 
@@ -494,6 +512,10 @@ export const VoicePipeline = forwardRef<VoicePipelineHandle, VoicePipelineProps>
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
         setSummaryData(data.summary);
+        if (conversationId) {
+          const conv = getConversation(conversationId);
+          if (conv) saveConversation({ ...conv, summary: data.summary });
+        }
       } catch (e) {
         handleError(`Summary error: ${e instanceof Error ? e.message : String(e)}`);
       } finally {

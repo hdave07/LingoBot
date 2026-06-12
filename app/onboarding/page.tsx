@@ -9,6 +9,7 @@ import {
   getLanguageFullName,
   getLanguageBaseCode,
   saveOnboarding,
+  saveAnthropicKey,
   setActiveLanguage,
   setCefrForLanguage,
   setTutorVoice,
@@ -16,11 +17,7 @@ import {
 } from "@/lib/onboarding";
 import type { PlacementResult } from "@/app/api/placement/route";
 
-// DEMO: API key comes from server env (ANTHROPIC_API_KEY).
-// To restore BYOK: add step 2 back to collect the key, import saveAnthropicKey,
-// and change processAudio to send the stored key in x-anthropic-key header.
-
-type Step = 1 | 2 | 3;
+type Step = 1 | 2 | 3 | 4;
 type RecState = "idle" | "recording" | "analyzing" | "error";
 
 const LANGUAGE_OPTIONS: { lang: TutorLanguage; label: string; sub: string }[] = [
@@ -45,6 +42,9 @@ export default function Onboarding() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
   const [tutorLanguage, setTutorLanguage] = useState<TutorLanguage>("es");
+  const [serverKeySet, setServerKeySet] = useState<boolean | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyError, setApiKeyError] = useState("");
 
   // Speaking test state
   const [recState, setRecState] = useState<RecState>("idle");
@@ -58,14 +58,26 @@ export default function Onboarding() {
 
   const MAX_SECONDS = 30;
 
+  useEffect(() => {
+    fetch("/api/has-key")
+      .then((r) => r.json())
+      .then(({ serverKeySet: v }: { serverKeySet: boolean }) => setServerKeySet(v))
+      .catch(() => setServerKeySet(false));
+  }, []);
+
+  const speakingStep: Step = serverKeySet ? 2 : 3;
+  const resultStep: Step = serverKeySet ? 3 : 4;
+  const totalSteps = serverKeySet ? 3 : 4;
+
   // Reset recording state when entering the speaking step
   useEffect(() => {
-    if (step === 2) {
+    if (step === speakingStep) {
       setRecState("idle");
       setElapsed(0);
       setRecError("");
       setPlacementResult(null);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   // Auto-stop at MAX_SECONDS
@@ -79,6 +91,17 @@ export default function Onboarding() {
   function handleLanguageSelect(lang: TutorLanguage) {
     setTutorLanguage(lang);
     setStep(2);
+  }
+
+  function handleApiKeySubmit() {
+    const trimmed = apiKey.trim();
+    if (!trimmed.startsWith("sk-ant-")) {
+      setApiKeyError("That doesn't look like an Anthropic API key — it should start with sk-ant-");
+      return;
+    }
+    saveAnthropicKey(trimmed);
+    setApiKeyError("");
+    setStep(3);
   }
 
   async function startRecording() {
@@ -135,11 +158,15 @@ export default function Onboarding() {
       }
     } catch { /* fall through with empty transcript */ }
 
-    // 2 — Placement (server uses ANTHROPIC_API_KEY env var)
+    // 2 — Placement
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const storedKey = apiKey.trim();
+      if (storedKey) headers["x-anthropic-key"] = storedKey;
+
       const placRes = await fetch("/api/placement", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ transcript, tutorLanguage }),
       });
 
@@ -150,7 +177,7 @@ export default function Onboarding() {
 
       const result: PlacementResult = await placRes.json();
       setPlacementResult(result);
-      setStep(3);
+      setStep(resultStep);
     } catch (e) {
       setRecError(e instanceof Error ? e.message : "Assessment failed — please try again.");
       setRecState("error");
@@ -159,7 +186,7 @@ export default function Onboarding() {
 
   function handleBeginnerSkip() {
     setPlacementResult({ level: "A1", note: "You'll start at beginner level — the bar above lets you adjust anytime." });
-    setStep(3);
+    setStep(resultStep);
   }
 
   function handleFinish() {
@@ -174,7 +201,7 @@ export default function Onboarding() {
       targetLanguage: baseLanguage,
       ptDialect,
       completedAt: new Date().toISOString(),
-      anthropicKeySet: true,
+      anthropicKeySet: !serverKeySet,
     });
 
     setActiveLanguage(tutorLanguage);
@@ -199,17 +226,19 @@ export default function Onboarding() {
           TalkMore
         </p>
 
-        {/* Progress dots */}
-        <div className="mb-12 flex justify-center gap-2">
-          {[1, 2, 3].map((s) => (
-            <div
-              key={s}
-              className={`h-1.5 w-6 rounded-full transition-colors duration-300 ${
-                s <= step ? "bg-white" : "bg-zinc-700"
-              }`}
-            />
-          ))}
-        </div>
+        {/* Progress dots — only show once we know the total step count */}
+        {serverKeySet !== null && (
+          <div className="mb-12 flex justify-center gap-2">
+            {Array.from({ length: totalSteps }, (_, i) => i + 1).map((s) => (
+              <div
+                key={s}
+                className={`h-1.5 w-6 rounded-full transition-colors duration-300 ${
+                  s <= step ? "bg-white" : "bg-zinc-700"
+                }`}
+              />
+            ))}
+          </div>
+        )}
 
         {/* ── Step 1: Language ── */}
         {step === 1 && (
@@ -233,11 +262,56 @@ export default function Onboarding() {
           </div>
         )}
 
-        {/* ── Step 2: Speaking test ── */}
-        {step === 2 && (
+        {/* ── Step 2: API Key (only when server has no key) ── */}
+        {step === 2 && serverKeySet === false && (
+          <div className="flex flex-col gap-6">
+            <div>
+              <p className="text-sm text-zinc-500">Step 1 of 3</p>
+              <h1 className="mt-1 text-2xl font-semibold">Your Anthropic API key</h1>
+              <p className="mt-2 text-sm text-zinc-500">
+                TalkMore uses Claude to power your language tutor. Paste your Anthropic API key below — it&rsquo;s stored only in your browser and never sent to our servers.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); setApiKeyError(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") handleApiKeySubmit(); }}
+                placeholder="sk-ant-..."
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none focus:border-zinc-600"
+                autoFocus
+              />
+              {apiKeyError && (
+                <p className="text-xs text-red-400">{apiKeyError}</p>
+              )}
+            </div>
+
+            <button
+              onClick={handleApiKeySubmit}
+              disabled={!apiKey.trim()}
+              className="w-full rounded-2xl bg-amber-400 py-4 font-medium text-black transition-colors hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Continue
+            </button>
+
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-center text-xs text-zinc-600 hover:text-zinc-400"
+            >
+              Get an API key at console.anthropic.com →
+            </a>
+          </div>
+        )}
+
+        {/* ── Speaking step ── */}
+        {step === speakingStep && (
           <div className="flex flex-col items-center gap-8">
             <div className="w-full">
-              <p className="text-sm text-zinc-500">Step 1 of 2</p>
+              <p className="text-sm text-zinc-500">{serverKeySet ? "Step 1 of 2" : "Step 2 of 3"}</p>
               <h1 className="mt-1 text-2xl font-semibold">Let&rsquo;s hear your {langName}</h1>
               <p className="mt-2 text-sm text-zinc-500">
                 Speak for about 20–30 seconds in {langFullName}.
@@ -307,11 +381,11 @@ export default function Onboarding() {
           </div>
         )}
 
-        {/* ── Step 3: Result ── */}
-        {step === 3 && placementResult && (
+        {/* ── Result step ── */}
+        {step === resultStep && placementResult && (
           <div className="flex flex-col items-center gap-8 text-center">
             <div className="w-full">
-              <p className="text-sm text-zinc-500">Step 2 of 2</p>
+              <p className="text-sm text-zinc-500">{serverKeySet ? "Step 2 of 2" : "Step 3 of 3"}</p>
               <h1 className="mt-1 text-2xl font-semibold">Your level</h1>
               <div className="mt-4 flex flex-col items-center gap-2">
                 <span className="rounded-full border border-amber-500/30 bg-amber-500/15 px-4 py-1 text-lg font-bold text-amber-400">
